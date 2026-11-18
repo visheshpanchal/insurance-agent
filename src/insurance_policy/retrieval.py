@@ -21,7 +21,8 @@ class RetrievalStage(AsyncStage):
 
     def __init__(self, settings: QdrantSettings):
         super().__init__()
-        self.settings = QdrantSettings
+        self.settings = settings
 
-    def process(self, request: QueryRequest):
-        pass
+    async def process(self, request: QueryRequest):
+        async with QdrantConnection(self.settings) as qdb:
+            qdb.query_points(points)
