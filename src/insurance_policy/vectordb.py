@@ -3,8 +3,12 @@ import uuid
 
 from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct, QueryResponse
+from qdrant_client.models import VectorParams, Distance, PointStruct, QueryResponse, SearchParams, Filter
 
+class EmbeddingSetting(BaseModel):
+    embedding_model: str = "nvidia/nemotron-3.5-embed-8b:free"
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api: str = "your_secret_key"
 
 def get_unique_id():
     return str(uuid.uuid4())
@@ -62,6 +66,15 @@ class QdrantConnection:
         await self.client.create_collection(collection_name=self.settings.collection_name,
                                             vectors_config=self.get_collection_config())
 
-    async def query_points(self, **kwargs) -> QueryResponse:
+    async def query_points(self, query, query_filter: Filter = None,
+                           search_params: SearchParams = None, limit: int = 10, offset: int = None,
+                           with_payload: bool = False, **kwargs) -> QueryResponse:
         await self.check_connection()
-        return await self.client.query_points(collection_name=self.settings.collection_name ,**kwargs)
+        return await self.client.query_points(collection_name=self.settings.collection_name,
+                                              query_filter=query_filter,
+                                              search_params=search_params,
+                                              limit=limit,
+                                              offset=offset,
+                                              with_payload=with_payload,
+                                              **kwargs
+                                              )

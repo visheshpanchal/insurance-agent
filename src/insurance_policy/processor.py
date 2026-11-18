@@ -1,28 +1,18 @@
-import asyncio
-import io
+import uuid
 from typing import Any, Callable
 
 import requests
-from pydantic import BaseModel
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from ragrock.extractor import DocumentExtractor, Document
 from ragrock.pipeline import Pipeline
 from ragrock.stage import AsyncStage, DetectStage, ParallelExtractStage, ParallelStage
 from ragrock.stage.job import ExtractionJob
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from llm import get_embedding_model
+from utils import get_file_name, length_function
+from vectordb import EmbeddingSetting
 from vectordb import QdrantSettings, QdrantConnection
-from dummy import dummy_embeddings
 
-from utils import get_file_name, length_function, get_embedding_model
-
-class Settings(BaseModel):
-    embedding_model: str = "nvidia/nemotron-3.5-embed-8b:free"
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api: str = "your_secret_key"
-
-qdb_settings = QdrantSettings(
-    vector_size=4096,
-    collection_name="default"
-)
 
 class PreviewStage(AsyncStage):
 
@@ -77,7 +67,7 @@ class ParallelChunk(ParallelStage):
 
 class Vectorization(AsyncStage):
 
-    def __init__(self, settings: Settings, **kwargs):
+    def __init__(self, settings: EmbeddingSetting, **kwargs):
         super().__init__(**kwargs)
         self.settings = settings
         self.embedding_model = get_embedding_model(settings)
@@ -95,20 +85,24 @@ class Vectorization(AsyncStage):
         return job
 
 class VectorDB(AsyncStage):
-    def __init__(self, settings: Settings, **kwargs):
+    def __init__(self, settings: EmbeddingSetting, **kwargs):
         super().__init__(**kwargs)
         self.settings = settings
 
     async def process(self, job: ExtractionJob) -> ExtractionJob:
         doc = job.extra_metadata
         vectors = doc["vector"]
-        async with QdrantConnection(qdrant_settings=qdb_settings) as qdb:
+        async with QdrantConnection(qdrant_settings=self.settings) as qdb:
             await qdb.add_point(vectors)
 
         return job
 
-async def processor(sources: list, settings: Settings):
+async def processor(sources: list[str], settings: EmbeddingSetting):
     extractor = DocumentExtractor()
+    qdb_settings = QdrantSettings(
+        vector_size=4096,
+        collection_name=uuid.uuid4()
+    )
     pipe = Pipeline(
         LoadPdf(workers=2),
         DetectStage(extractor.registry),
@@ -116,7 +110,6 @@ async def processor(sources: list, settings: Settings):
         ParallelChunk(chunk_size=500, chunk_overlap=100),
         Vectorization(settings=settings, workers=8),
         VectorDB(settings=qdb_settings),
-        # PreviewStage(),
         threads=2,
         processes=2
     )

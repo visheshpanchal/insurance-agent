@@ -9,6 +9,9 @@ from __future__ import annotations
 import gradio as gr
 import services
 from services import Citation
+from ragrock.log import setup_logging
+
+setup_logging()
 
 DISCLAIMER = (
     "Answers come only from the uploaded policy documents. "

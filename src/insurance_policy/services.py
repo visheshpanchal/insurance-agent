@@ -8,8 +8,8 @@ without changing the signatures, and the UI in app.py keeps working.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
-from processing_step import processor, Settings
+from processor import processor
+from vectordb import EmbeddingSetting
 from utils import pdf_name
 import asyncio
 
@@ -65,7 +65,7 @@ CHECKLIST_ITEMS = [
 # ---------------------------------------------------------------------------
 def process_document(pdf_path: str) -> str:
     """Parse, chunk and embed a policy PDF. Returns a document id. (dummy)"""
-    settings = Settings()
+    settings = EmbeddingSetting()
     asyncio.run(processor([pdf_path], settings))
     return pdf_name(pdf_path)
 
@@ -99,7 +99,7 @@ def answer_question(doc_id: str, question: str) -> Answer:
 # ---------------------------------------------------------------------------
 def run_checkup(pdf_path: str) -> list[ChecklistResult]:
     """Check the policy against the fixed checklist. (dummy)"""
-    doc = _name(pdf_path)
+    doc = pdf_name(pdf_path)
     return [
         ChecklistResult(
             "Waiting periods", True,
@@ -143,7 +143,7 @@ def run_checkup(pdf_path: str) -> list[ChecklistResult]:
 # ---------------------------------------------------------------------------
 def compare_policies(pdf_paths: list[str], needs: str) -> list[ComparisonPoint]:
     """Compare policies against the user's needs; pros/cons only. (dummy)"""
-    names = [_name(p) for p in pdf_paths]
+    names = [pdf_name(p) for p in pdf_paths]
     points: list[ComparisonPoint] = []
     samples = [
         ("pro", "No room-rent cap, which suits a preference for a private room.", 9, "3.1 Room Rent",
