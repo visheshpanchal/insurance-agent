@@ -1,41 +1,29 @@
-import os
 import uuid
 
-from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct, QueryResponse, SearchParams, Filter
+from qdrant_client.models import VectorParams, PointStruct, QueryResponse, SearchParams, Filter
 
-class EmbeddingSetting(BaseModel):
-    embedding_model: str = "nvidia/nemotron-3.5-embed-8b:free"
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api: str = "your_secret_key"
+from settings import settings
+
 
 def get_unique_id():
     return str(uuid.uuid4())
 
 
-class QdrantSettings(BaseModel):
-    collection_name: str = "default"
-    vector_size: int = 512
-    distance: Distance = Distance.COSINE
-    url: str = "http://localhost:6333/"
-    api_key: str = os.getenv("QDRANT_API_KEY", "your_secret_key")
-
-
 class QdrantConnection:
 
-    def __init__(self, qdrant_settings: QdrantSettings):
-        self.settings = qdrant_settings
+    def __init__(self, user_id: str):
+        self.user_id = user_id
         self.client: AsyncQdrantClient | None = None
 
     def get_collection_config(self):
-        return VectorParams(size=self.settings.vector_size,
-                            distance=self.settings.distance)
+        return VectorParams(size=settings.vector_size,
+                            distance=settings.distance)
 
     async def __aenter__(self):
-        self.client = AsyncQdrantClient(url=self.settings.url, api_key=self.settings.api_key)
-        if not await self.client.collection_exists(self.settings.collection_name):
-            await self.client.create_collection(self.settings.collection_name,
+        self.client = AsyncQdrantClient(url=settings.qdrant_base_url, api_key=settings.qdrant_api_key)
+        if not await self.client.collection_exists(self.user_id):
+            await self.client.create_collection(self.user_id,
                                                 vectors_config=self.get_collection_config()
                                                 )
         return self
@@ -48,12 +36,12 @@ class QdrantConnection:
         if not self.client:
             raise Exception("Connection is closed.")
 
-    async def add_point(self, vectors: list, metadata: dict = None):
+    async def add_point(self, vectors: list, metadata: dict | None = None):
         if metadata is None:
             metadata = {}
 
         await self.client.upsert(
-            collection_name=self.settings.collection_name,
+            collection_name=self.user_id,
             points=[PointStruct(
                 vector=vector["point"],
                 payload={"text": vector["text"], "metadata": metadata},
@@ -62,15 +50,16 @@ class QdrantConnection:
         )
 
     async def delete_and_create(self):
-        await self.client.delete(self.settings.collection_name)
-        await self.client.create_collection(collection_name=self.settings.collection_name,
+        await self.client.delete(self.user_id)
+        await self.client.create_collection(collection_name=self.user_id,
                                             vectors_config=self.get_collection_config())
 
-    async def query_points(self, query, query_filter: Filter = None,
-                           search_params: SearchParams = None, limit: int = 10, offset: int = None,
+    async def query_points(self, query, query_filter: Filter | None = None,
+                           search_params: SearchParams | None = None, limit: int = 10, offset: int  | None = None,
                            with_payload: bool = False, **kwargs) -> QueryResponse:
         await self.check_connection()
-        return await self.client.query_points(collection_name=self.settings.collection_name,
+        return await self.client.query_points(collection_name=self.user_id,
+                                              query=query,
                                               query_filter=query_filter,
                                               search_params=search_params,
                                               limit=limit,

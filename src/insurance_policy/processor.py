@@ -1,4 +1,4 @@
-import uuid
+import asyncio
 from typing import Any, Callable
 
 import requests
@@ -10,8 +10,7 @@ from ragrock.stage.job import ExtractionJob
 
 from llm import get_embedding_model
 from utils import get_file_name, length_function
-from vectordb import EmbeddingSetting
-from vectordb import QdrantSettings, QdrantConnection
+from vectordb import QdrantConnection
 
 
 class PreviewStage(AsyncStage):
@@ -65,51 +64,56 @@ class ParallelChunk(ParallelStage):
 
         return job
 
+
 class Vectorization(AsyncStage):
 
-    def __init__(self, settings: EmbeddingSetting, **kwargs):
+    def __init__(self, control_request: int = 10, **kwargs):
         super().__init__(**kwargs)
-        self.settings = settings
-        self.embedding_model = get_embedding_model(settings)
+        self.embedding_model = get_embedding_model()
+        self.control_request = control_request
+
+    async def setup(self) -> None:
+        self._semp = asyncio.Semaphore(self.control_request)
+
+    async def embed_doc(self, text: str, index: int):
+        async with self._semp:
+            return {
+                "index": index,
+                "text": text,
+                "point": await self.embedding_model.aembed_query(text)
+            }
 
     async def process(self, job: ExtractionJob) -> ExtractionJob:
         doc = job.extra_metadata
         chunks = doc["chunks"]
-        vec = []
-        for chunk in chunks:
-            point = await self.embedding_model.aembed_query(chunk)
-
-            vec.append({'text': chunk, 'point': point})
-
+        vec = await asyncio.gather(*(self.embed_doc(chunk, index) for index, chunk in enumerate(chunks)))
         job.extra_metadata["vector"] = vec
         return job
 
+
 class VectorDB(AsyncStage):
-    def __init__(self, settings: EmbeddingSetting, **kwargs):
+    def __init__(self, user_id: str, **kwargs):
         super().__init__(**kwargs)
-        self.settings = settings
+        self.user_id = user_id
 
     async def process(self, job: ExtractionJob) -> ExtractionJob:
         doc = job.extra_metadata
         vectors = doc["vector"]
-        async with QdrantConnection(qdrant_settings=self.settings) as qdb:
+        async with QdrantConnection(user_id=self.user_id) as qdb:
             await qdb.add_point(vectors)
 
         return job
 
-async def processor(sources: list[str], settings: EmbeddingSetting):
+
+async def processor(sources: list[str], user_id: str):
     extractor = DocumentExtractor()
-    qdb_settings = QdrantSettings(
-        vector_size=4096,
-        collection_name=uuid.uuid4()
-    )
     pipe = Pipeline(
         LoadPdf(workers=2),
         DetectStage(extractor.registry),
         ParallelExtractStage(extractor.registry, workers=2),
-        ParallelChunk(chunk_size=500, chunk_overlap=100),
-        Vectorization(settings=settings, workers=8),
-        VectorDB(settings=qdb_settings),
+        ParallelChunk(chunk_size=1000, chunk_overlap=100),
+        Vectorization(workers=8),
+        VectorDB(user_id=user_id),
         threads=2,
         processes=2
     )
@@ -123,5 +127,3 @@ async def processor(sources: list[str], settings: EmbeddingSetting):
         results.append(out)
 
     return results
-
-

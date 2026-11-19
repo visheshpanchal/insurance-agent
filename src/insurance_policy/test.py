@@ -1,20 +1,12 @@
-from processor import processor, EmbeddingSetting
 import asyncio
-from ragrock.log import setup_logging
 
-setup_logging()
+from vectordb import QdrantConnection
+from settings import QdrantSettings
 
-if __name__ == "__main__":
-    # out = asyncio.run(processor(
-    #     sources=["/Users/visheshpanchal/Documents/coding/projects/RAG-Projects/insurence-policy/data/care-supreme---policy-terms-and-conditions.pdf"],
-    #     settings=EmbeddingSetting()
-    # ))
-    #
-    # for o in out:
-    #     if hasattr(o, "error"):
-    #         print(o.error)
-    #     else:
-    #         print("No Error")
-    pass
+async def main():
+    qdb = QdrantSettings()
+    async with QdrantConnection(qdb) as fp:
+        pass
 
+asyncio.run(main())
 

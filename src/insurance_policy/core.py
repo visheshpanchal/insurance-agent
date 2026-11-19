@@ -1,33 +1,20 @@
-import asyncio
-
-from langchain_core.messages import AIMessage, HumanMessage, convert_to_openai_messages, SystemMessage
+from langchain_core.messages import convert_to_openai_messages, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from llm import ChatSettings, api_key, url
+
+from memory import memory
 from retrieval import retrieve
+from settings import settings
 
 
 class PolicyQANDA:
     def __init__(self, user_id: str):
         self.user_id = user_id
-        self.history: dict[str, list[AIMessage | SystemMessage | HumanMessage]] = {}
-        self.settings = ChatSettings()
-        self.model = ChatOpenAI(model=self.settings.model, api_key=api_key, base_url=url)
+        self.model = ChatOpenAI(model=settings.chat_model,
+                                api_key=settings.openrouter_api_key, base_url=settings.openrouter_baseurl)
         self.list_of_policies = []
-
-    def get_user_history(self):
-        _history = ""
-        for history in self.history:
-            if isinstance(history, AIMessage):
-                role = "assistant"
-            elif isinstance(history, HumanMessage):
-                role = "user"
-
-            _history += f"Role: {role}\n {history.content}\n\n"
-
-        return _history
 
     async def enhance_query(self, query: str):
         """
@@ -42,7 +29,7 @@ class PolicyQANDA:
         chain = prompt | self.model | JsonOutputParser()
 
         out = await chain.ainvoke({
-            "chat_history": self.get_user_history(),
+            "chat_history": memory.get_user_history(self.user_id),
             "policy_list": _policies, "user_question": query
         })
         return out
@@ -52,10 +39,14 @@ class PolicyQANDA:
         policy_content = ""
         if rag_query.get("needs_retrieval"):
             rag_query = rag_query.get("rewritten_question")
-            policy_content = await retrieve([rag_query])
-            policy_content = policy_content[0].points[0].payload["text"]
+            policy_content = await retrieve([rag_query], self.user_id)
+            points = policy_content[0].points
+            if points:
+                policy_content = points[0].payload["text"]
+            else:
+                policy_content = "We won't be able to find policy content."
 
-        if not self.history.get(self.user_id):
+        if not memory.get(self.user_id):
             with open(f"./prompts/insurance-reviewer.md", "r") as fp:
                 prompt = fp.read()
 
@@ -65,6 +56,7 @@ class PolicyQANDA:
             {policy_content}
             </context>
 
+
             User has question regarding it's policy can help him to solve.
             {question}
 
@@ -73,7 +65,11 @@ class PolicyQANDA:
 
             Please answer in politely don't recommend other policy. 
             Always add notes `THIS IS AI GENERATED TEXT SO CROSS CHECK WITH INSURANCE AGENT. AI CAN MAKE MISTAKES.`
+            Note: Be polite when you anwser to user don't tell maybe sometimes content not available so tell to user as polite or professional way.
             """
+
+            memory.set(self.user_id, SystemMessage(content=prompt))
+
             prompt = ChatPromptTemplate.from_messages(
                 [
                     ("system", prompt),
@@ -81,6 +77,7 @@ class PolicyQANDA:
                 ]
             )
             chain = prompt | self.model
+
 
         else:
             user = f"""
@@ -103,11 +100,12 @@ class PolicyQANDA:
             """
 
             prompt = ChatPromptTemplate([
-                *convert_to_openai_messages(self.history),
+                *convert_to_openai_messages(memory.chat_history.get(self.user_id, [])),
                 ("user", user)
             ])
             chain = prompt | self.model
 
+        chain.with_alisteners(on_end=memory.save_history)
         async for chunk in chain.astream({}):
             for block in chunk.content_blocks:
                 if block.get("type") == "text" and block.get("text"):
@@ -115,8 +113,6 @@ class PolicyQANDA:
 
 
 async def chat(query: str, user_id):
-    obj = PolicyQANDA(user_id=user_id)
-
-
-if __name__ == "__main__":
-    asyncio.run(chat())
+    pol = PolicyQANDA(user_id=user_id)
+    async for stem in pol.chat(query):
+        yield stem
