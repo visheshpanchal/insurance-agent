@@ -3,3 +3,10 @@ langchain>=1.4.1
 langchain-qdrant>=1.1.0
 langchain-text-splitters>=1.1.2
 langchain-core>=1.6.3
+
+qdrant-client
+langchain-openai
+pydantic
+python-dotenv
+loguru
+requests
