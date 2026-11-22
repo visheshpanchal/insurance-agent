@@ -1,20 +1,34 @@
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import requests
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from ragrock.extractor import DocumentExtractor, Document
-from ragrock.pipeline import Pipeline
-from ragrock.stage import AsyncStage, DetectStage, ParallelExtractStage, ParallelStage
-from ragrock.stage.job import ExtractionJob
-
 from llm import get_embedding_model
+from ragrock.extractor import Document, DocumentExtractor
+from ragrock.pipeline import Pipeline
+from ragrock.stage import (
+    AsyncStage,
+    DetectStage,
+    Failed,
+    ParallelExtractStage,
+    ParallelStage,
+)
+from ragrock.stage.job import ExtractionJob
 from utils import get_file_name, length_function
 from vectordb import QdrantConnection
 
 
-class PreviewStage(AsyncStage):
+class ProcessingError(Exception):
+    """Processing pieline exeception so it will raised if not able to process data."""
 
+    def __init__(self, failures: list[Failed]):
+        self.failures = failures
+        details = "; ".join(f"{f.stage}: {f.error}" for f in failures)
+        super().__init__(f"{len(failures)} document(s) failed to process. {details}")
+
+
+class PreviewStage(AsyncStage):
     async def process(self, job: ExtractionJob) -> dict[str, str | None | int | Any]:
         doc = job.document
         if not isinstance(doc, Document):
@@ -25,14 +39,16 @@ class PreviewStage(AsyncStage):
             "pages": doc.metadata.page_count,
             "words": doc.word_count,
             "tables": len(doc.tables),
-            "text": doc.text
+            "text": doc.text,
         }
 
 
 class LoadPdf(AsyncStage):
     async def process(self, job: ExtractionJob):
         doc = job.source
-        if isinstance(doc, str) and (doc.startswith("https://") or doc.startswith("www")):
+        if isinstance(doc, str) and (
+            doc.startswith("https://") or doc.startswith("www")
+        ):
             req = requests.get(doc)
             job.data = req.content
         elif isinstance(doc, bytes):
@@ -44,7 +60,13 @@ class LoadPdf(AsyncStage):
 
 
 class ParallelChunk(ParallelStage):
-    def __init__(self, chunk_size=200, chunk_overlap=50, length_func: Callable | None = None, **kwargs):
+    def __init__(
+        self,
+        chunk_size=200,
+        chunk_overlap=50,
+        length_func: Callable | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -53,8 +75,11 @@ class ParallelChunk(ParallelStage):
     def process(self, job: ExtractionJob):
         content = job.document.content()
         length_func = self.length_function or length_function
-        splitter = RecursiveCharacterTextSplitter(length_function=length_func,
-                                                  chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap)
+        splitter = RecursiveCharacterTextSplitter(
+            length_function=length_func,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
         docs = splitter.split_text(content)
 
         if not isinstance(job.extra_metadata, dict):
@@ -66,7 +91,6 @@ class ParallelChunk(ParallelStage):
 
 
 class Vectorization(AsyncStage):
-
     def __init__(self, control_request: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.embedding_model = get_embedding_model()
@@ -80,13 +104,15 @@ class Vectorization(AsyncStage):
             return {
                 "index": index,
                 "text": text,
-                "point": await self.embedding_model.aembed_query(text)
+                "point": await self.embedding_model.aembed_query(text),
             }
 
     async def process(self, job: ExtractionJob) -> ExtractionJob:
         doc = job.extra_metadata
         chunks = doc["chunks"]
-        vec = await asyncio.gather(*(self.embed_doc(chunk, index) for index, chunk in enumerate(chunks)))
+        vec = await asyncio.gather(
+            *(self.embed_doc(chunk, index) for index, chunk in enumerate(chunks))
+        )
         job.extra_metadata["vector"] = vec
         return job
 
@@ -115,15 +141,22 @@ async def processor(sources: list[str], user_id: str):
         Vectorization(workers=8),
         VectorDB(user_id=user_id),
         threads=2,
-        processes=2
+        processes=2,
     )
 
-    jobs = [ExtractionJob(file_name=get_file_name(source),
-                          source=source,
-                          file_type="pdf")
-            for source in sources]
+    jobs = [
+        ExtractionJob(file_name=get_file_name(source), source=source, file_type="pdf")
+        for source in sources
+    ]
     results = []
+    failures: list[Failed] = []
     async for out in pipe.run(jobs):
-        results.append(out)
+        if isinstance(out, Failed):
+            failures.append(out)
+        else:
+            results.append(out)
+
+    if failures:
+        raise ProcessingError(failures)
 
     return results

@@ -13,6 +13,3 @@ def pdf_name(pdf_path: str | None) -> str:
 
 def length_function(text: str):
     return len(text) // 4
-
-
-

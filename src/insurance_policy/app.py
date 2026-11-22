@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import gradio as gr
 import services
-from services import Citation
-from ragrock.log import setup_logging
 from memory import memory
+from processor import ProcessingError
+from ragrock.log import setup_logging
+from services import Citation
 
 setup_logging()
 
@@ -28,7 +29,7 @@ def fmt_citation(c: Citation, n: int | None = None) -> str:
 def clear_chat(request: gr.Request):
     user_id = request.session_hash
     memory.clear_history_chat(user_id)
-    return [],'_No Citations_'
+    return [], "_No Citations_"
 
 
 async def on_qa_upload(pdf, request: gr.Request):
@@ -38,8 +39,12 @@ async def on_qa_upload(pdf, request: gr.Request):
 
     if pdf is None:
         return None, "No policy loaded.", []
-    doc_id = await services.process_document(pdf, user_id)
-    return doc_id, f"✅ Loaded **{doc_id}**. Ask a question below.", []
+    try:
+        doc_id = await services.process_document(pdf, user_id)
+    except ProcessingError as e:
+        return None, f"Could not process the policy. {e}", []
+    return doc_id, f"Loaded **{doc_id}**. Ask a question below.", []
+
 
 # Feature: Q&A
 async def on_ask(question, history, doc_id, request: gr.Request):
@@ -125,9 +130,7 @@ with gr.Blocks(title="Insurance Policy Assistant") as demo:
             question.submit(
                 on_ask, [question, chatbot, doc_state], [question, chatbot, qa_cites]
             )
-            clear_btn.click(
-                clear_chat, [], [chatbot, qa_cites]
-            )
+            clear_btn.click(clear_chat, [], [chatbot, qa_cites])
 
 if __name__ == "__main__":
     demo.launch(theme=gr.themes.Soft(), debug=True)

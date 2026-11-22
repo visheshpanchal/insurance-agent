@@ -11,6 +11,7 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 class EmbeddingModelSettings(BaseModel):
     embedding_model: str = "qwen/qwen3-embedding-4b"
 
+
 class QdrantSettings(BaseModel):
     vector_size: int = 2560
     distance: Distance = Distance.COSINE
@@ -19,9 +20,10 @@ class QdrantSettings(BaseModel):
 
 
 class ModelSettings(BaseModel):
-    openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
-    openrouter_baseurl: str | None = os.getenv("OPENROUTER_BASE_URL")
+    openrouter_api_key: str | None = os.getenv("OPENROUTER_KEY")
+    openrouter_baseurl: str | None = os.getenv("OPENROUTER_URL")
     chat_model: str = "deepseek/deepseek-v4.1-flash-1017"
+
 
 class Settings(EmbeddingModelSettings, QdrantSettings, ModelSettings):
     pass

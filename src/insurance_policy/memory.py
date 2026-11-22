@@ -1,10 +1,11 @@
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
 class Memory:
-
     def __init__(self):
-        self.chat_history: dict[str, list[AIMessage | SystemMessage | HumanMessage]] = {}
+        self.chat_history: dict[
+            str, list[AIMessage | SystemMessage | HumanMessage]
+        ] = {}
         self.docs: dict[str, dict[str, str]] = {}
 
     def clear_history_chat(self, user_id):
@@ -12,7 +13,7 @@ class Memory:
             return
         del self.chat_history[user_id]
 
-    def save_doc(self, user_id: str, doc_name: str ,doc: str):
+    def save_doc(self, user_id: str, doc_name: str, doc: str):
         docs = self.docs.get(user_id, dict())
         docs[doc_name] = doc
         self.docs[user_id] = docs.copy()
@@ -39,7 +40,7 @@ class Memory:
         his = self.chat_history.get(user_id, [])
         his.append(
             HumanMessage(content=context.inputs["input"]),
-            AIMessage(content=out.content)
+            AIMessage(content=out.content),
         )
         self.chat_history[user_id] = his
 
