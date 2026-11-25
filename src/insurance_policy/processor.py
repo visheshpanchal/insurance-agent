@@ -28,6 +28,9 @@ class ProcessingError(Exception):
         super().__init__(f"{len(failures)} document(s) failed to process. {details}")
 
 
+# stages
+
+
 class PreviewStage(AsyncStage):
     async def process(self, job: ExtractionJob) -> dict[str, str | None | int | Any]:
         doc = job.document
@@ -125,13 +128,24 @@ class VectorDB(AsyncStage):
     async def process(self, job: ExtractionJob) -> ExtractionJob:
         doc = job.extra_metadata
         vectors = doc["vector"]
+        # Document-level metadata (e.g. doc_id) goes onto every chunk's payload.
+        doc_meta = {k: v for k, v in doc.items() if k not in ("chunks", "vector")}
         async with QdrantConnection(user_id=self.user_id) as qdb:
-            await qdb.add_point(vectors)
+            await qdb.add_point(vectors, metadata=doc_meta)
 
         return job
 
 
-async def processor(sources: list[str], user_id: str):
+# public function
+
+
+async def processor(
+    sources: list[str],
+    user_id: str,
+    metadata: dict[str, dict] | None = None,
+):
+    """metadata: optional {source: {...}} stored on every chunk of that source."""
+    metadata = metadata or {}
     extractor = DocumentExtractor()
     pipe = Pipeline(
         LoadPdf(workers=2),
@@ -145,7 +159,12 @@ async def processor(sources: list[str], user_id: str):
     )
 
     jobs = [
-        ExtractionJob(file_name=get_file_name(source), source=source, file_type="pdf")
+        ExtractionJob(
+            file_name=get_file_name(source),
+            source=source,
+            file_type="pdf",
+            extra_metadata=dict(metadata.get(source, {})),
+        )
         for source in sources
     ]
     results = []

@@ -35,13 +35,9 @@ class Memory:
             _history += f"Role: {role}\n {his.content}\n\n"
         return _history
 
-    async def save_history(self, user_id, context):
-        out = context.outputs["output"]
+    def add_turn(self, user_id: str, question: str, answer: str):
         his = self.chat_history.get(user_id, [])
-        his.append(
-            HumanMessage(content=context.inputs["input"]),
-            AIMessage(content=out.content),
-        )
+        his.extend([HumanMessage(content=question), AIMessage(content=answer)])
         self.chat_history[user_id] = his
 
     def get(self, user_id):

@@ -65,13 +65,16 @@ class RetrievalStage(AsyncStage):
             )
 
 
-async def retrieve(
+async def retrieve_points(
     queries: list[str],
     user_id: str,
     top_k: int = 5,
     score_threshold: float = 0.4,
     limit_per_query: int = 10,
-) -> list[str]:
+) -> list[ScoredPoint]:
+    """
+    Retriev points with ScoredPoint it helps to give more information for eval.
+    """
     pipe = Pipeline(queue_size=10, threads=6, processes=2)
 
     pipe.add_stage(QueryEmbeddingStage(workers=2))
@@ -107,5 +110,23 @@ async def retrieve(
                 f"All retrieval queries failed. {failures[0].stage}: {failures[0].error!r}"
             )
 
-    ranked = sorted(best.values(), key=lambda p: p.score, reverse=True)[:top_k]
-    return [p.payload["text"] for p in ranked if p.payload and p.payload.get("text")]
+    return sorted(best.values(), key=lambda p: p.score, reverse=True)[:top_k]
+
+
+async def retrieve(
+    queries: list[str],
+    user_id: str,
+    top_k: int = 5,
+    score_threshold: float = 0.4,
+    limit_per_query: int = 10,
+) -> list[str]:
+    points = await retrieve_points(
+        queries, user_id, top_k, score_threshold, limit_per_query
+    )
+
+    out = []
+    for point in points:
+        if hasattr(point, "payload") and point.payload.get("get"):
+            out.append(point.payload["text"])
+
+    return out

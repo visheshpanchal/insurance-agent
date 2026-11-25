@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import anyio
 from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import SystemMessage, convert_to_openai_messages
 from langchain_core.output_parsers import JsonOutputParser
@@ -5,10 +8,11 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_openai import ChatOpenAI
 from loguru import logger
 from memory import memory
-from retrieval import retrieve
+from retrieval import retrieve_points
 from settings import settings
 
 NO_CONTEXT = "No relevant section was found in the uploaded policy for this question."
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 class PolicyQANDA:
@@ -20,14 +24,15 @@ class PolicyQANDA:
             base_url=settings.openrouter_baseurl,
         )
         self.list_of_policies = []
+        self.last_points = []
 
     async def enhance_query(self, query: str):
         """
         This function take user query and return enhanced query based on policies and last conversation.
 
         """
-        with open("./prompts/enhence-user-query.md") as fp:
-            prompt = PromptTemplate.from_template(fp.read(), template_format="mustache")
+        async with await anyio.open_file(f"{PROMPTS_DIR}/enhence-user-query.md") as fp:
+            prompt = PromptTemplate.from_template(await fp.read(), template_format="mustache")
 
         _policies = "\n".join(self.list_of_policies)
 
@@ -63,7 +68,12 @@ class PolicyQANDA:
                 queries.append(sub["query"])
         queries = list(dict.fromkeys(queries))
 
-        chunks = await retrieve(queries, self.user_id)
+        self.last_points = await retrieve_points(queries, self.user_id)
+        chunks = [
+            point.payload["text"]
+            for point in self.last_points
+            if point.payload and point.payload.get("text")
+        ]
         if not chunks:
             return NO_CONTEXT
         return "\n\n".join(f"[{i}] {chunk}" for i, chunk in enumerate(chunks, 1))
@@ -72,8 +82,10 @@ class PolicyQANDA:
         policy_content = await self.build_context(question)
 
         if not memory.get(self.user_id):
-            with open(f"./prompts/insurance-reviewer.md", "r") as fp:
-                prompt = fp.read()
+            async with await anyio.open_file(
+                f"{PROMPTS_DIR}/insurance-reviewer.md"
+            ) as fp:
+                prompt = await fp.read()
 
             user_prompt = f"""        
             I am sharing you data from I fetch that help to understand what he means.
@@ -130,11 +142,13 @@ class PolicyQANDA:
             )
             chain = prompt | self.model
 
-        chain = chain.with_alisteners(on_end=memory.save_history)
+        parts: list[str] = []
         async for chunk in chain.astream({}):
             for block in chunk.content_blocks:
                 if block.get("type") == "text" and block.get("text"):
+                    parts.append(block["text"])
                     yield block["text"]
+        memory.add_turn(self.user_id, question, "".join(parts))
 
 
 async def chat(query: str, user_id):

@@ -1,6 +1,6 @@
 .idea
 *.pyc
 __pycache__
-data
 .DS_Store
 .env
+eval_runs
