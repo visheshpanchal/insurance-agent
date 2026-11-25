@@ -30,9 +30,6 @@ def load_dataset(path: Path = DATASET) -> list[dict]:
         return [json.loads(line) for line in fp if line.strip()]
 
 
-
-
-
 async def ingest(collection: str) -> None:
     sources, meta = [], {}
     for doc_id, name in DOC_FILES.items():
@@ -154,5 +151,6 @@ def main(config: EvalConfig):
 
 
 if __name__ == "__main__":
-    config = EvalConfig(num_questions=5, seed=42, judge=True, command=Command.REPLAY, replay_path="data/eval_runs/20261125T120807-9a84ab.jsonl")
+    config = EvalConfig(num_questions=5, seed=42, judge=True, command=Command.INGEST,
+                        replay_path="data/eval_runs/20261125T120807-9a84ab.jsonl")
     main(config)

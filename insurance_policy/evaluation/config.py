@@ -6,7 +6,7 @@ from pathlib import Path
 from settings import settings
 
 PKG_DIR = Path(__file__).resolve().parent.parent
-ROOT = PKG_DIR.parents[1]
+ROOT = PKG_DIR.parents[0]
 DEFAULT_COLLECTION = "eval_corpus"
 DATA_DIR = ROOT / "data"
 PDF_DIR = DATA_DIR / "pdf"

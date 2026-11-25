@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from qdrant_client.models import Distance
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 class EmbeddingModelSettings(BaseModel):
